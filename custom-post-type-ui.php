@@ -13,14 +13,11 @@ License: GPLv2
 // Define current version constant
 define( 'CPT_VERSION', '0.8.1' );
 
-// Define plugin URL constant
-$CPT_URL = cpt_check_return( 'add' );
-
 //load translated strings
 load_plugin_textdomain( 'cpt-plugin', false, 'custom-post-type-ui/languages' );
 
-// create custom plugin settings menu
-add_action('admin_menu', 'cpt_plugin_menu');
+// create custom plugin settings menu based on network plugin or not
+add_action( 'init', 'cpt_init_menu_type', 0 );
 
 //call delete post function
 add_action( 'admin_init', 'cpt_delete_post_type' );
@@ -39,12 +36,42 @@ add_action( 'admin_head', 'cpt_help_style' );
 //flush rewrite rules on deactivation
 register_deactivation_hook( __FILE__, 'cpt_deactivation' );
 
+function cpt_init_menu_type () {
+    global $cpt_networkMode, $cpt_networkAdmin_only, $CPT_URL;
+    //Check if Plugin is Network Enabled
+    $cpt_networkMode = is_plugin_for_network_active("custom-post-type-ui/custom-post-type-ui.php");
+
+    //Check if cpt_networkadmin_only is True or false (set it false if Plugin is not network Plugin)
+    $cpt_networkAdmin_only = "false";
+    if($cpt_networkMode) {
+        $cpt_networkAdmin_only = get_site_option('cpt_networkadmin_only', 'false');
+
+        if($cpt_networkAdmin_only == "false") {
+            $cpt_networkMode = false;
+        }
+    }
+    //Render Menu as Network Menu if Network mode
+    if($cpt_networkMode)
+        add_action( 'network_admin_menu', 'cpt_plugin_menu' );
+    else {
+        add_action( 'admin_menu', 'cpt_plugin_menu' );
+        // Render Menu for Turning network Only Mode on
+        if($cpt_networkAdmin_only == "false") {
+            add_action( 'network_admin_menu', 'cpt_plugin_menu_network_activate' );
+        }
+    }
+
+    // Define plugin URL constant
+    $CPT_URL = cpt_check_return( 'add' );
+}
+
 function cpt_deactivation() {
 	// Clear the permalinks to remove our post type's rules
 	flush_rewrite_rules();
 }
 
 function cpt_plugin_menu() {
+    global $cpt_networkMode, $cpt_networkAdmin_only;
 	//create custom post type menu
 	add_menu_page( __( 'Custom Post Types', 'cpt-plugin' ), __( 'CPT UI', 'cpt-plugin' ), 'manage_options', 'cpt_main_menu', 'cpt_settings' );
 
@@ -52,6 +79,18 @@ function cpt_plugin_menu() {
 	add_submenu_page( 'cpt_main_menu', __( 'Add New', 'cpt-plugin' ), __( 'Add New', 'cpt-plugin' ), 'manage_options', 'cpt_sub_add_new', 'cpt_add_new' );
 	add_submenu_page( 'cpt_main_menu', __( 'Manage Post Types', 'cpt-plugin' ), __( 'Manage Post Types', 'cpt-plugin' ), 'manage_options', 'cpt_sub_manage_cpt', 'cpt_manage_cpt' );
 	add_submenu_page( 'cpt_main_menu', __( 'Manage Taxonomies', 'cpt-plugin' ), __( 'Manage Taxonomies', 'cpt-plugin' ), 'manage_options', 'cpt_sub_manage_taxonomies', 'cpt_manage_taxonomies' );
+
+    if($cpt_networkMode && $cpt_networkAdmin_only == "true") {
+        add_submenu_page( 'cpt_main_menu', __( 'Network Mode', 'cpt-plugin' ), __( 'Network Mode', 'cpt-plugin' ), 'manage_options', 'cpt_sub_network_mode', 'cpt_network_mode' );
+    }
+}
+
+function cpt_plugin_menu_network_activate() {
+	//create custom post type menu
+	add_menu_page( __( 'Custom Post Types', 'cpt-plugin' ), __( 'CPT UI', 'cpt-plugin' ), 'manage_options', 'cpt_main_menu', 'cpt_settings' );
+
+	//create submenu items
+	add_submenu_page( 'cpt_main_menu', __( 'Network Mode', 'cpt-plugin' ), __( 'Network Mode', 'cpt-plugin' ), 'manage_options', 'cpt_sub_network_mode', 'cpt_network_mode' );
 }
 
 //temp fix, should do: http://planetozh.com/blog/2008/04/how-to-load-javascript-with-your-wordpress-plugin/
@@ -80,8 +119,12 @@ function cpt_wp_add_styles() {
 }
 
 function cpt_create_custom_post_types() {
+    global $cpt_networkMode;
 	//register custom post types
-	$cpt_post_types = get_option('cpt_custom_post_types');
+    if($cpt_networkMode)
+        $cpt_post_types = get_site_option('cpt_custom_post_types');
+    else
+	    $cpt_post_types = get_option('cpt_custom_post_types');
 
 	//check if option value is an Array before proceeding
 	if ( is_array( $cpt_post_types ) ) {
@@ -155,8 +198,12 @@ function cpt_create_custom_post_types() {
 
 
 function cpt_create_custom_taxonomies() {
+    global $cpt_networkMode;
 	//register custom taxonomies
-	$cpt_tax_types = get_option('cpt_custom_tax_types');
+    if($cpt_networkMode)
+        $cpt_tax_types = get_site_option('cpt_custom_tax_types');
+    else
+	    $cpt_tax_types = get_option('cpt_custom_tax_types');
 
 	//check if option value is an array before proceeding
 	if ( is_array( $cpt_tax_types ) ) {
@@ -202,7 +249,7 @@ function cpt_create_custom_taxonomies() {
 
 //delete custom post type or custom taxonomy
 function cpt_delete_post_type() {
-	global $CPT_URL;
+	global $CPT_URL, $cpt_networkMode;
 
 	//check if we are deleting a custom post type
 	if( isset( $_GET['deltype'] ) ) {
@@ -211,13 +258,19 @@ function cpt_delete_post_type() {
 		check_admin_referer( 'cpt_delete_post_type' );
 
 		$delType = intval( $_GET['deltype'] );
-		$cpt_post_types = get_option( 'cpt_custom_post_types' );
+        if($cpt_networkMode)
+            $cpt_post_types = get_site_option('cpt_custom_post_types');
+        else
+		    $cpt_post_types = get_option( 'cpt_custom_post_types' );
 
 		unset( $cpt_post_types[$delType] );
 
 		$cpt_post_types = array_values( $cpt_post_types );
 
-		update_option( 'cpt_custom_post_types', $cpt_post_types );
+        if($cpt_networkMode)
+            update_site_option('cpt_custom_post_types', $cpt_post_types);
+        else
+		    update_option( 'cpt_custom_post_types', $cpt_post_types );
 
 		if ( isset( $_GET['return'] ) ) {
 			$RETURN_URL = cpt_check_return( esc_attr( $_GET['return'] ) );
@@ -233,13 +286,19 @@ function cpt_delete_post_type() {
 		check_admin_referer( 'cpt_delete_tax' );
 
 		$delType = intval( $_GET['deltax'] );
-		$cpt_taxonomies = get_option( 'cpt_custom_tax_types' );
+        if($cpt_networkMode)
+            $cpt_taxonomies = get_site_option('cpt_custom_tax_types');
+        else
+		    $cpt_taxonomies = get_option( 'cpt_custom_tax_types' );
 
 		unset( $cpt_taxonomies[$delType] );
 
 		$cpt_taxonomies = array_values( $cpt_taxonomies );
 
-		update_option( 'cpt_custom_tax_types', $cpt_taxonomies );
+        if($cpt_networkMode)
+            update_site_option('cpt_custom_tax_types', $cpt_taxonomies);
+        else
+		    update_option( 'cpt_custom_tax_types', $cpt_taxonomies );
 
 		if ( isset( $_GET['return'] ) ) {
 			$RETURN_URL = cpt_check_return( esc_attr( $_GET['return'] ) );
@@ -253,7 +312,7 @@ function cpt_delete_post_type() {
 }
 
 function cpt_register_settings() {
-	global $cpt_error, $CPT_URL;
+	global $cpt_error, $CPT_URL, $cpt_networkMode;
 
 	if ( isset( $_POST['cpt_edit'] ) ) {
 		//edit a custom post type
@@ -277,7 +336,10 @@ function cpt_register_settings() {
 		array_push( $cpt_form_fields, $_POST['cpt_labels'] );
 
 		//load custom posts saved in WP
-		$cpt_options = get_option( 'cpt_custom_post_types' );
+        if($cpt_networkMode)
+            $cpt_options = get_site_option('cpt_custom_post_types');
+        else
+		    $cpt_options = get_option( 'cpt_custom_post_types' );
 
 		if ( is_array( $cpt_options ) ) {
 
@@ -290,7 +352,10 @@ function cpt_register_settings() {
 			$cpt_options = stripslashes_deep( $cpt_options );
 
 			//save custom post types
-			update_option( 'cpt_custom_post_types', $cpt_options );
+            if($cpt_networkMode)
+                update_site_option('cpt_custom_post_types', $cpt_options);
+            else
+			    update_option( 'cpt_custom_post_types', $cpt_options );
 
 			if ( isset( $_GET['return'] ) ) {
 				$RETURN_URL = cpt_check_return( esc_attr( $_GET['return'] ) );
@@ -334,7 +399,10 @@ function cpt_register_settings() {
 		array_push( $cpt_form_fields, $_POST['cpt_labels'] );
 
 		//load custom posts saved in WP
-		$cpt_options = get_option( 'cpt_custom_post_types' );
+        if($cpt_networkMode)
+            $cpt_options = get_site_option('cpt_custom_post_types');
+        else
+		    $cpt_options = get_option( 'cpt_custom_post_types' );
 
 		//check if option exists, if not create an array for it
 		if ( !is_array( $cpt_options ) ) {
@@ -346,7 +414,10 @@ function cpt_register_settings() {
 		$cpt_options = stripslashes_deep( $cpt_options );
 
 		//save new custom post type array in the CPT option
-		update_option( 'cpt_custom_post_types', $cpt_options );
+        if($cpt_networkMode)
+            update_site_option('cpt_custom_post_types', $cpt_options);
+        else
+		    update_option( 'cpt_custom_post_types', $cpt_options );
 
 		if ( isset( $_GET['return'] ) ) {
 			$RETURN_URL = cpt_check_return( esc_attr( $_GET['return'] ) );
@@ -376,7 +447,10 @@ function cpt_register_settings() {
 		array_push( $cpt_form_fields, $_POST['cpt_post_types'] );
 
 		//load custom posts saved in WP
-		$cpt_options = get_option( 'cpt_custom_tax_types' );
+        if($cpt_networkMode)
+            $cpt_options = get_site_option('cpt_custom_tax_types');
+        else
+		    $cpt_options = get_option( 'cpt_custom_tax_types' );
 
 		if ( is_array( $cpt_options ) ) {
 
@@ -388,7 +462,10 @@ function cpt_register_settings() {
 			$cpt_options = array_values( $cpt_options );
 
 			//save custom post types
-			update_option( 'cpt_custom_tax_types', $cpt_options );
+            if($cpt_networkMode)
+                update_site_option('cpt_custom_tax_types', $cpt_options);
+            else
+			    update_option( 'cpt_custom_tax_types', $cpt_options );
 
 			if ( isset( $_GET['return'] ) ) {
 				$RETURN_URL = cpt_check_return( esc_attr( $_GET['return'] ) );
@@ -439,7 +516,10 @@ function cpt_register_settings() {
 		array_push( $cpt_form_fields, $_POST['cpt_post_types'] );
 
 		//load custom taxonomies saved in WP
-		$cpt_options = get_option( 'cpt_custom_tax_types' );
+        if($cpt_networkMode)
+            $cpt_options = get_site_option('cpt_custom_tax_types');
+        else
+		    $cpt_options = get_option( 'cpt_custom_tax_types' );
 
 		//check if option exists, if not create an array for it
 		if ( !is_array( $cpt_options ) ) {
@@ -450,7 +530,10 @@ function cpt_register_settings() {
 		array_push( $cpt_options, $cpt_form_fields );
 
 		//save new custom taxonomy array in the CPT option
-		update_option( 'cpt_custom_tax_types', $cpt_options );
+        if($cpt_networkMode)
+            update_site_option('cpt_custom_tax_types', $cpt_options);
+        else
+		    update_option( 'cpt_custom_tax_types', $cpt_options );
 
 		if ( isset( $_GET['return'] ) ) {
 			$RETURN_URL = cpt_check_return( esc_attr( $_GET['return'] ) );
@@ -533,7 +616,7 @@ cpt_footer();
 
 //manage custom post types page
 function cpt_manage_cpt() {
-	global $CPT_URL;
+	global $CPT_URL, $cpt_networkMode;
 
 	$MANAGE_URL = cpt_check_return( 'add' );
 
@@ -552,7 +635,10 @@ if ( isset($_GET['cpt_msg'] ) && $_GET['cpt_msg'] == 'del' ) { ?>
 <h2><?php _e('Manage Custom Post Types', 'cpt-plugin') ?></h2>
 <p><?php _e('Deleting custom post types will <strong>NOT</strong> delete any content into the database or added to those post types.  You can easily recreate your post types and the content will still exist.', 'cpt-plugin') ?></p>
 <?php
-	$cpt_post_types = get_option( 'cpt_custom_post_types', array() );
+    if($cpt_networkMode)
+        $cpt_post_types = get_site_option('cpt_custom_post_types', array() );
+    else
+        $cpt_post_types = get_option( 'cpt_custom_post_types', array() );
 
 	if (is_array($cpt_post_types)) {
 		?>
@@ -822,7 +908,7 @@ if ( isset($_GET['cpt_msg'] ) && $_GET['cpt_msg'] == 'del' ) { ?>
 
 //manage custom taxonomies page
 function cpt_manage_taxonomies() {
-	global $CPT_URL;
+	global $CPT_URL, $cpt_networkMode;
 
 	$MANAGE_URL = cpt_check_return( 'add' );
 
@@ -840,8 +926,11 @@ if (isset($_GET['cpt_msg']) && $_GET['cpt_msg']=='del') { ?>
 <?php screen_icon( 'plugins' ); ?>
 <h2><?php _e('Manage Custom Taxonomies', 'cpt-plugin') ?></h2>
 <p><?php _e('Deleting custom taxonomies does <strong>NOT</strong> delete any content added to those taxonomies.  You can easily recreate your taxonomies and the content will still exist.', 'cpt-plugin') ?></p>
-<?php
-	$cpt_tax_types = get_option( 'cpt_custom_tax_types', array() );
+    <?php
+    if($cpt_networkMode)
+        $cpt_tax_types = get_site_option('cpt_custom_tax_types', array());
+    else
+	    $cpt_tax_types = get_option( 'cpt_custom_tax_types', array() );
 
 	if (is_array($cpt_tax_types)) {
 		?>
@@ -910,7 +999,10 @@ if (isset($_GET['cpt_msg']) && $_GET['cpt_msg']=='del') { ?>
 					<div style="display:none;" id="slidepanel<?php echo $thecounter; ?>">
 						<?php
 						//display register_taxonomy code
-						$cpt_tax_types = get_option('cpt_custom_tax_types');
+                        if($cpt_networkMode)
+                            $cpt_tax_types = get_site_option('cpt_custom_tax_types');
+                        else
+						    $cpt_tax_types = get_option('cpt_custom_tax_types');
 
 						$custom_tax = '';
 						$custom_tax = "add_action('init', 'cptui_register_my_taxes');\n";
@@ -984,7 +1076,7 @@ if (isset($_GET['cpt_msg']) && $_GET['cpt_msg']=='del') { ?>
 
 //add new custom post type / taxonomy page
 function cpt_add_new() {
-	global $cpt_error, $CPT_URL;
+	global $cpt_error, $CPT_URL, $cpt_networkMode;
 
 	$RETURN_URL = ( isset( $_GET['return'] ) ) ? 'action="' . cpt_check_return( esc_attr( $_GET['return'] ) ) . '"' : '';
 
@@ -996,7 +1088,10 @@ function cpt_add_new() {
 		$editType = intval($_GET['edittype']);
 
 		//load custom posts saved in WP
-		$cpt_options = get_option('cpt_custom_post_types');
+        if($cpt_networkMode)
+            $cpt_options = get_site_option('cpt_custom_post_types');
+        else
+		    $cpt_options = get_option('cpt_custom_post_types');
 
 		//load custom post type values to edit
         $cpt_post_type_name     = ( isset( $cpt_options[ $editType ]["name"] ) ) ? $cpt_options[ $editType ]["name"] : null;
@@ -1033,7 +1128,10 @@ function cpt_add_new() {
 		$editTax = intval($_GET['edittax']);
 
 		//load custom posts saved in WP
-		$cpt_options = get_option('cpt_custom_tax_types');
+        if($cpt_networkMode)
+            $cpt_options = get_site_option('cpt_custom_tax_types');
+        else
+		    $cpt_options = get_option('cpt_custom_tax_types');
 
 		//load custom post type values to edit
 		$cpt_tax_name = $cpt_options[$editTax]["name"];
@@ -1406,7 +1504,10 @@ function cpt_add_new() {
 				<td width="50%" valign="top">
 					<?php
 					//debug area
-					$cpt_options = get_option('cpt_custom_tax_types');
+                    if($cpt_networkMode)
+                        $cpt_options = get_site_option('cpt_custom_tax_types');
+                    else
+					    $cpt_options = get_option('cpt_custom_tax_types');
 					?>
 					<p><?php _e( 'If you are unfamiliar with the options below only fill out the <strong>Taxonomy Name</strong> and <strong>Post Type Name</strong> fields.  The other settings are set to the most common defaults for custom taxonomies. Hover over the question mark for more details.', 'cpt-plugin' );?></p>
 					<form method="post" <?php echo $RETURN_URL; ?>>
@@ -1610,6 +1711,42 @@ function cpt_add_new() {
 cpt_footer();
 }
 
+function cpt_network_mode() {
+    global $cpt_networkAdmin_only;
+
+    //Prossess Change of Status
+    if(isset($_POST['cpt_network_only'])) {
+        update_site_option('cpt_networkadmin_only', $_POST['cpt_network_only']);
+        $cpt_networkAdmin_only = $_POST['cpt_network_only'];
+    }
+
+    //NetworkOnly Activate/Deactivate Page
+    ?>
+    <form method="post" action="admin.php?page=cpt_sub_network_mode">
+    <div class="wrap">
+        <?php screen_icon( 'plugins' ); ?>
+        <h2><?php _e( 'Custom Post Type UI', 'cpt-plugin' ); ?> <?php _e( 'version', 'cpt-plugin' ); ?>: <?php echo CPT_VERSION; ?></h2>
+        <table class="form-table">
+            <tr>
+                <td valign="top">
+                    <?php echo __('Network Only Mode', 'plugin') ?>
+                </td>
+                <td>
+                    <select name="cpt_network_only">
+                        <option value="true"<?php if($cpt_networkAdmin_only == "true") echo " selected"; ?>>True</option>
+                        <option value="false"<?php if($cpt_networkAdmin_only == "false") echo " selected"; ?>>False</option>
+                    </select>
+                </td>
+            </tr>
+        </table>
+        <?php submit_button(); ?>
+        <?php cpt_footer(); ?>
+
+    </div>
+    </form>
+<?php
+}
+
 function cpt_footer() {
 	?>
 	<hr />
@@ -1621,13 +1758,13 @@ function cpt_check_return( $return ) {
 	global $CPT_URL;
 
 	if ( $return == 'cpt' ) {
-		return ( isset( $_GET['return'] ) ) ? admin_url( 'admin.php?page=cpt_sub_manage_cpt&return=cpt' ) : admin_url( 'admin.php?page=cpt_sub_manage_cpt' );
+		return ( isset( $_GET['return'] ) ) ? cpt_admin_url( 'admin.php?page=cpt_sub_manage_cpt&return=cpt' ) : cpt_admin_url( 'admin.php?page=cpt_sub_manage_cpt' );
 	} elseif ( $return == 'tax' ){
-		return ( isset( $_GET['return'] ) ) ? admin_url( 'admin.php?page=cpt_sub_manage_taxonomies&return=tax' ) : admin_url( 'admin.php?page=cpt_sub_manage_taxonomies' );
+		return ( isset( $_GET['return'] ) ) ? cpt_admin_url( 'admin.php?page=cpt_sub_manage_taxonomies&return=tax' ) : cpt_admin_url( 'admin.php?page=cpt_sub_manage_taxonomies' );
 	} elseif ( $return == 'add' ) {
-		return admin_url( 'admin.php?page=cpt_sub_add_new' );
+		return cpt_admin_url( 'admin.php?page=cpt_sub_add_new' );
 	} else {
-		return admin_url( 'admin.php?page=cpt_sub_add_new' );
+		return cpt_admin_url( 'admin.php?page=cpt_sub_add_new' );
 	}
 }
 
@@ -1655,4 +1792,36 @@ function cpt_help_style() { ?>
 		.required { color: rgb(255,0,0); }
 	</style>
 <?php
+}
+
+function cpt_admin_url($url) {
+    global $cpt_networkAdmin_only;
+
+    //Return Networkadmin URL if NetworkOnly Mode enabled, else normal Admin URL
+    if($cpt_networkAdmin_only == "true")
+        return network_admin_url($url);
+    else
+        return admin_url($url);
+}
+
+//Add Function for Networkplugin check
+if(!function_exists('is_plugin_for_network_active')) {
+    /**
+     * Check whether the plugin is active for the entire network.
+     *
+     * @since 3.0.0
+     *
+     * @param string $plugin Base plugin path from plugins directory.
+     * @return bool True, if active for the network, otherwise false.
+     */
+    function is_plugin_for_network_active( $plugin ) {
+        if ( !is_multisite() )
+            return false;
+
+        $plugins = get_site_option( 'active_sitewide_plugins');
+        if ( isset($plugins[$plugin]) )
+            return true;
+
+        return false;
+    }
 }
